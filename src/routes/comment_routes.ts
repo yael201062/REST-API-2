@@ -59,7 +59,7 @@ import { authMiddleware } from "../controllers/auth_controller";
  *       500:
  *         description: Internal server error
  */
-router.get("/", authMiddleware, commentsController.getAll.bind(commentsController));
+router.get("/", commentsController.getAll.bind(commentsController));
 
 /**
  * @swagger
@@ -87,7 +87,8 @@ router.get("/", authMiddleware, commentsController.getAll.bind(commentsControlle
  *       500:
  *         description: Internal server error
  */
-router.get("/:id", authMiddleware, commentsController.getById.bind(commentsController));
+router.get("/:id", commentsController.getById.bind(commentsController));
+
 
 /**
  * @swagger
