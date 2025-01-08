@@ -1,98 +1,132 @@
-import { Request, Response, NextFunction } from "express";
-import bcrypt from "bcrypt";
-import jwt from "jsonwebtoken";
-import User from "../models/user_model";
+import { Request, Response } from 'express';
+import User from '../models/user_model';
+import { generateAccessToken, generateRefreshToken, hashPassword, comparePassword } from '../utils/auth';
 
-// Register a new user
-const register = async (req: Request, res: Response, next: NextFunction) => {
+interface AuthenticatedRequest extends Request {
+  userId?: string;
+}
+
+export const registerUser = async (req: Request, res: Response) => {
+  const { username, email, password } = req.body;
+
   try {
-    const { username, email, password } = req.body;
-    const hashedPassword = await bcrypt.hash(password, 10);
-    const newUser = await User.create({ username, email, password: hashedPassword });
-    res.status(201).json(newUser);
-  } catch (error) {
-    next(error);
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ message: 'User already exists' });
+    }
+
+    const hashedPassword = await hashPassword(password);
+    const newUser = new User({ username, email, password: hashedPassword });
+    await newUser.save();
+    const accessToken = generateAccessToken(newUser._id.toString());
+    const refreshToken = generateRefreshToken(newUser._id.toString());
+
+    newUser.refreshToken = refreshToken;
+    await newUser.save();
+
+    res.status(201).json({ accessToken, refreshToken });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err });
   }
 };
 
-// User login
-const login = async (req: Request, res: Response, next: NextFunction) => {
+export const loginUser = async (req: Request, res: Response) => {
+  const { email, password } = req.body;
+
   try {
-    const { email, password } = req.body;
     const user = await User.findOne({ email });
-    if (!user || !(await bcrypt.compare(password, user.password))) {
-      const error = new Error("Invalid credentials");
-      error.status = 401;
-      throw error;
-    }
-
-    const accessToken = jwt.sign({ id: user.id }, process.env.JWT_SECRET || "secret", { expiresIn: "15m" });
-    const refreshToken = jwt.sign({ id: user.id }, process.env.JWT_REFRESH_SECRET || "refresh", { expiresIn: "7d" });
-
-    res.json({ accessToken, refreshToken });
-  } catch (error) {
-    next(error);
-  }
-};
-
-// Get all users
-const getAllUsers = async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const users = await User.find({}, "-password");
-    res.json(users);
-  } catch (error) {
-    next(error);
-  }
-};
-
-// Get user by ID
-const getUserById = async (req: Request, res: Response, next: NextFunction) => {
-  try {
-    const user = await User.findById(req.params.id, "-password");
     if (!user) {
-      const error = new Error("User not found");
-      error.status = 404;
-      throw error;
+      return res.status(400).json({ message: 'Invalid credentials' });
     }
-    res.json(user);
-  } catch (error) {
-    next(error);
+
+    const isMatch = await comparePassword(password, user.password);
+    if (!isMatch) {
+      return res.status(400).json({ message: 'Invalid credentials' });
+    }
+
+    const accessToken = generateAccessToken(user._id.toString());
+    const refreshToken = generateRefreshToken(user._id.toString());
+
+    user.refreshToken = refreshToken;
+    await user.save();
+
+    res.status(200).json({ accessToken, refreshToken });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err });
   }
 };
 
-// Update user
-const updateUser = async (req: Request, res: Response, next: NextFunction) => {
+export const logoutUser = async (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.userId;
+
   try {
-    const { username, email } = req.body;
-    const updatedUser = await User.findByIdAndUpdate(
-      req.params.id,
-      { username, email },
-      { new: true, runValidators: true }
-    );
-    if (!updatedUser) {
-      const error = new Error("User not found");
-      error.status = 404;
-      throw error;
+    const user = await User.findById(userId);
+    if (user) {
+      user.refreshToken = undefined;
+      await user.save();
     }
-    res.json(updatedUser);
-  } catch (error) {
-    next(error);
+
+    res.status(200).json({ message: 'Logged out successfully' });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err });
   }
 };
 
-// Delete user
-const deleteUser = async (req: Request, res: Response, next: NextFunction) => {
+export const getUserById = async (req: Request, res: Response) => {
+  const userId = req.params.id;
+
   try {
-    const deletedUser = await User.findByIdAndDelete(req.params.id);
-    if (!deletedUser) {
-      const error = new Error("User not found");
-      error.status = 404;
-      throw error;
+    const user = await User.findById(userId).select('-password -refreshToken');
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
     }
-    res.json({ message: "User deleted successfully" });
-  } catch (error) {
-    next(error);
+
+    res.status(200).json(user);
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err });
   }
 };
 
-export { register, login, getAllUsers, getUserById, updateUser, deleteUser };
+export const updateUser = async (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.params.id;
+  const { username, email } = req.body;
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (user._id.toString() !== req.userId) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    user.username = username || user.username;
+    user.email = email || user.email;
+    await user.save();
+
+    res.status(200).json(user);
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err });
+  }
+};
+
+export const deleteUser = async (req: AuthenticatedRequest, res: Response) => {
+  const userId = req.params.id;
+
+  try {
+    const user = await User.findById(userId);
+    if (!user) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    if (user._id.toString() !== req.userId) {
+      return res.status(403).json({ message: 'Not authorized' });
+    }
+
+    await user.deleteOne();
+    res.status(200).json({ message: 'User deleted successfully' });
+  } catch (err) {
+    res.status(500).json({ message: 'Server error', error: err });
+  }
+};
