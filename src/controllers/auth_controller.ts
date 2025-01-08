@@ -202,25 +202,30 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction) 
     const authorization = req.header('authorization');
     const token = authorization && authorization.split(' ')[1];
 
+    console.log('Authorization header:', authorization); // Log the header
+    console.log('Token:', token); // Log the token
+
     if (!token) {
+        console.log('No token provided');
         res.status(401).send('Access Denied');
-        return; // עצור את הבקשה כאן
+        return;
     }
     if (!process.env.TOKEN_SECRET) {
+        console.log('TOKEN_SECRET is missing');
         res.status(500).send('Server Error');
-        return; // עצור את הבקשה כאן
+        return;
     }
 
     jwt.verify(token, process.env.TOKEN_SECRET, (err, payload) => {
         if (err) {
+            console.log('Token verification failed:', err); // Log the error
             res.status(401).send('Access Denied');
-            return; // עצור את הבקשה כאן
+            return;
         }
         req.params.userId = (payload as { _id: string })._id;
-        next(); // העבר את הבקשה ל-handler הבא
+        next(); // Pass the request to the next handler
     });
 };
-
 // Export the functions
 export default {
     register,

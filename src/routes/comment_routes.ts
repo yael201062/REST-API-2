@@ -1,8 +1,7 @@
-import express from 'express';
-import commentsController from '../controllers/comment_controller';
-import { authMiddleware } from '../controllers/auth_controller';
-
+import express from "express";
 const router = express.Router();
+import commentsController from "../controllers/comment_controller";
+import { authMiddleware } from "../controllers/auth_controller";
 
 /**
  * @swagger
@@ -10,7 +9,6 @@ const router = express.Router();
  *   name: Comments
  *   description: The Comments API
  */
-
 /**
  * @swagger
  * components:
@@ -28,20 +26,75 @@ const router = express.Router();
  *     Comment:
  *       type: object
  *       required:
- *         - content
+ *         - comment
+ *         - postId
  *       properties:
- *         content:
+ *          comment:
  *           type: string
  *           description: The content of the comment
+ *          postId:
+ *           type: string
+ *           description: The post ID the comment belongs to
  *       example:
- *         content: 'This is a comment'
+ *         comment: 'My First Comment'
+ *         postId: '1111111111111'
  */
+
+/**
+ * @swagger
+ * /comments:
+ *   get:
+ *     summary: Get all comments
+ *     description: Retrieve all comments in the system.
+ *     tags: [Comments]
+ *     responses:
+ *       200:
+ *         description: A list of comments
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: array
+ *               items:
+ *                $ref: '#/components/schemas/Comment'
+ *       500:
+ *         description: Internal server error
+ */
+router.get("/", authMiddleware, commentsController.getAll.bind(commentsController));
+
+/**
+ * @swagger
+ * /comments/{id}:
+ *   get:
+ *     summary: Get a comment by ID
+ *     description: Retrieve a specific comment by its ID.
+ *     tags: [Comments]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         description: The comment ID
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: A single comment object
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Comment'
+ *       404:
+ *         description: Comment not found
+ *       500:
+ *         description: Internal server error
+ */
+router.get("/:id", authMiddleware, commentsController.getById.bind(commentsController));
 
 /**
  * @swagger
  * /comments:
  *   post:
  *     summary: Create a new comment
+ *     description: Add a new comment to a post. Requires authentication.
  *     tags: [Comments]
  *     security:
  *       - bearerAuth: []
@@ -52,92 +105,42 @@ const router = express.Router();
  *           schema:
  *             $ref: '#/components/schemas/Comment'
  *     responses:
- *       200:
- *         description: The created comment
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Comment'
- *       401:
- *         description: Unauthorized (missing or invalid token)
+ *       201:
+ *         description: Comment created successfully
  *       400:
- *         description: Bad request (invalid input)
+ *         description: Invalid input
+ *       401:
+ *         description: Unauthorized - authentication required
  *       500:
- *         description: Server error
+ *         description: Internal server error
  */
 router.post("/", authMiddleware, commentsController.create.bind(commentsController));
 
 /**
  * @swagger
- * /comments:
- *   get:
- *     summary: Get all comments
- *     tags: [Comments]
- *     responses:
- *       200:
- *         description: List of all comments
- *         content:
- *           application/json:
- *             schema:
- *               type: array
- *               items:
- *                 $ref: '#/components/schemas/Comment'
- *       500:
- *         description: Server error
- */
-router.get("/", commentsController.getAll.bind(commentsController));
-
-/**
- * @swagger
- * /comments/{id}:
- *   get:
- *     summary: Get a specific comment by ID
- *     tags: [Comments]
- *     parameters:
- *       - in: path
- *         name: id
- *         required: true
- *         description: ID of the comment
- *         schema:
- *           type: string
- *     responses:
- *       200:
- *         description: The comment details
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Comment'
- *       404:
- *         description: Comment not found
- *       500:
- *         description: Server error
- */
-router.get("/:id", commentsController.getById.bind(commentsController));
-
-/**
- * @swagger
  * /comments/{id}:
  *   delete:
- *     summary: Delete a specific comment by ID
+ *     summary: Delete a comment by ID
+ *     description: Delete a specific comment using its ID. Requires authentication.
  *     tags: [Comments]
- *     security:
- *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
  *         required: true
- *         description: ID of the comment to delete
+ *         description: The comment ID
  *         schema:
  *           type: string
+ *     security:
+ *       - bearerAuth: []
  *     responses:
  *       200:
  *         description: Comment deleted successfully
- *       401:
- *         description: Unauthorized (missing or invalid token)
  *       404:
  *         description: Comment not found
+ *       401:
+ *         description: Unauthorized - authentication required
  *       500:
- *         description: Server error
+ *         description: Internal server error
  */
 router.delete("/:id", authMiddleware, commentsController.deleteItem.bind(commentsController));
 
