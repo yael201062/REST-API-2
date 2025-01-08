@@ -4,178 +4,164 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { Document } from 'mongoose';
 
+// Registration
 const register = async (req: Request, res: Response) => {
     try {
-        const password = req.body.password;
+        const { email, password } = req.body;
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
-        const user = await userModel.create({
-            email: req.body.email,
-            password: hashedPassword,
-        });
+        const user = await userModel.create({ email, password: hashedPassword });
         res.status(200).send(user);
     } catch (err) {
         res.status(400).send(err);
     }
 };
 
+// Token Generation
 type tTokens = {
-    accessToken: string,
-    refreshToken: string
-}
+    accessToken: string;
+    refreshToken: string;
+};
 
 const generateToken = (userId: string): tTokens | null => {
     if (!process.env.TOKEN_SECRET) {
         return null;
     }
-    // generate token
-    const random = Math.random().toString();
-    const accessToken = jwt.sign({
-        _id: userId,
-        random: random
-    },
-        process.env.TOKEN_SECRET,
-        { expiresIn: process.env.TOKEN_EXPIRES });
 
-    const refreshToken = jwt.sign({
-        _id: userId,
-        random: random
-    },
+    const random = Math.random().toString();
+    const accessToken = jwt.sign(
+        { _id: userId, random },
         process.env.TOKEN_SECRET,
-        { expiresIn: process.env.REFRESH_TOKEN_EXPIRES });
-    return {
-        accessToken: accessToken,
-        refreshToken: refreshToken
-    };
+        { expiresIn: process.env.TOKEN_EXPIRES }
+    );
+
+    const refreshToken = jwt.sign(
+        { _id: userId, random },
+        process.env.TOKEN_SECRET,
+        { expiresIn: process.env.REFRESH_TOKEN_EXPIRES }
+    );
+
+    return { accessToken, refreshToken };
 };
+
+// Login
 const login = async (req: Request, res: Response) => {
     try {
-        const user = await userModel.findOne({ email: req.body.email });
+        const { email, password } = req.body;
+        const user = await userModel.findOne({ email });
+
         if (!user) {
-            res.status(400).send('wrong username or password');
-            return;
+            return res.status(400).send('Wrong username or password');
         }
-        const validPassword = await bcrypt.compare(req.body.password, user.password);
+
+        const validPassword = await bcrypt.compare(password, user.password);
         if (!validPassword) {
-            res.status(400).send('wrong username or password');
-            return;
+            return res.status(400).send('Wrong username or password');
         }
-        if (!process.env.TOKEN_SECRET) {
-            res.status(500).send('Server Error');
-            return;
-        }
-        // generate token
+
         const tokens = generateToken(user._id);
         if (!tokens) {
-            res.status(500).send('Server Error');
-            return;
+            return res.status(500).send('Server Error');
         }
+
         if (!user.refreshToken) {
             user.refreshToken = [];
         }
         user.refreshToken.push(tokens.refreshToken);
         await user.save();
-        res.status(200).send(
-            {
-                accessToken: tokens.accessToken,
-                refreshToken: tokens.refreshToken,
-                _id: user._id
-            });
 
+        res.status(200).send({
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
+            _id: user._id
+        });
     } catch (err) {
         res.status(400).send(err);
     }
 };
 
-type tUser = Document<unknown, {}, IUser> & IUser & Required<{
-    _id: string;
-}> & {
-    __v: number;
-}
-const verifyRefreshToken = (refreshToken: string | undefined) => {
-    return new Promise<tUser>((resolve, reject) => {
-        //get refresh token from body
+// Verify Refresh Token
+type tUser = Document<unknown, {}, IUser> & IUser & Required<{ _id: string }> & { __v: number };
+
+const verifyRefreshToken = async (refreshToken: string | undefined): Promise<tUser | null> => {
+    return new Promise<tUser | null>((resolve, reject) => {
         if (!refreshToken) {
-            reject("fail");
-            return;
+            return reject('fail');
         }
-        //verify token
+
         if (!process.env.TOKEN_SECRET) {
-            reject("fail");
-            return;
+            return reject('fail');
         }
+
         jwt.verify(refreshToken, process.env.TOKEN_SECRET, async (err: any, payload: any) => {
             if (err) {
-                reject("fail");
-                return
+                return reject('fail');
             }
-            //get the user id fromn token
+
             const userId = payload._id;
             try {
-                //get the user form the db
                 const user = await userModel.findById(userId);
-                if (!user) {
-                    reject("fail");
-                    return;
+                if (!user || !user.refreshToken || !user.refreshToken.includes(refreshToken)) {
+                    if (user) user.refreshToken = [];
+                    await user?.save();
+                    return reject('fail');
                 }
-                if (!user.refreshToken || !user.refreshToken.includes(refreshToken)) {
-                    user.refreshToken = [];
-                    await user.save();
-                    reject("fail");
-                    return;
-                }
-                const tokens = user.refreshToken!.filter((token) => token !== refreshToken);
-                user.refreshToken = tokens;
 
+                // Remove the used refresh token
+                user.refreshToken = user.refreshToken.filter((token) => token !== refreshToken);
+                await user.save();
                 resolve(user);
             } catch (err) {
-                reject("fail");
-                return;
+                reject('fail');
             }
         });
     });
-}
+};
 
+// Logout
 const logout = async (req: Request, res: Response) => {
     try {
         const user = await verifyRefreshToken(req.body.refreshToken);
-        await user.save();
-        res.status(200).send("success");
+        if (user) {
+            res.status(200).send('success');
+        } else {
+            res.status(400).send('fail');
+        }
     } catch (err) {
-        res.status(400).send("fail");
+        res.status(400).send('fail');
     }
 };
 
+// Refresh Token
 const refresh = async (req: Request, res: Response) => {
     try {
         const user = await verifyRefreshToken(req.body.refreshToken);
         if (!user) {
-            res.status(400).send("fail");
-            return;
+            return res.status(400).send('fail');
         }
-        const tokens = generateToken(user._id);
 
+        const tokens = generateToken(user._id);
         if (!tokens) {
-            res.status(500).send('Server Error');
-            return;
+            return res.status(500).send('Server Error');
         }
+
         if (!user.refreshToken) {
             user.refreshToken = [];
         }
         user.refreshToken.push(tokens.refreshToken);
         await user.save();
-        res.status(200).send(
-            {
-                accessToken: tokens.accessToken,
-                refreshToken: tokens.refreshToken,
-                _id: user._id
-            });
-        //send new token
+
+        res.status(200).send({
+            accessToken: tokens.accessToken,
+            refreshToken: tokens.refreshToken,
+            _id: user._id
+        });
     } catch (err) {
-        res.status(400).send("fail");
+        res.status(400).send('fail');
     }
 };
 
+// Authentication Middleware
 type Payload = {
     _id: string;
 };
@@ -185,19 +171,18 @@ export const authMiddleware = (req: Request, res: Response, next: NextFunction) 
     const token = authorization && authorization.split(' ')[1];
 
     if (!token) {
-        res.status(401).send('Access Denied');
-        return;
+        return res.status(401).send('Access Denied');
     }
+
     if (!process.env.TOKEN_SECRET) {
-        res.status(500).send('Server Error');
-        return;
+        return res.status(500).send('Server Error');
     }
 
     jwt.verify(token, process.env.TOKEN_SECRET, (err, payload) => {
         if (err) {
-            res.status(401).send('Access Denied');
-            return;
+            return res.status(401).send('Access Denied');
         }
+
         req.params.userId = (payload as Payload)._id;
         next();
     });

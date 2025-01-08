@@ -1,15 +1,25 @@
-import express from "express";
-const router = express.Router();
-import postsController from "../controllers/post_controller";
-import { authMiddleware } from "../controllers/auth_controller";
+import express from 'express';
+import postsController from '../controllers/post_controller';
+import { authMiddleware } from '../controllers/auth_controller';
 
+const router = express.Router();
 
 /**
-* @swagger
-* tags:
-*   name: Posts
-*   description: The Posts API
-*/
+ * @swagger
+ * tags:
+ *   name: Posts
+ *   description: The Posts API
+ */
+
+/**
+ * @swagger
+ * components:
+ *   securitySchemes:
+ *     bearerAuth:
+ *       type: http
+ *       scheme: bearer
+ *       bearerFormat: JWT
+ */
 
 /**
  * @swagger
@@ -21,36 +31,56 @@ import { authMiddleware } from "../controllers/auth_controller";
  *         - title
  *         - content
  *       properties:
- *         _id:
- *           type: string
- *           description: The auto-generated id of the post
  *         title:
  *           type: string
  *           description: The title of the post
  *         content:
  *           type: string
  *           description: The content of the post
- *         owner:
- *           type: string
- *           description: The owner id of the post
  *       example:
- *         _id: 245234t234234r234r23f4
- *         title: My First Post
- *         content: This is the content of my first post.
- *         author: 324vt23r4tr234t245tbv45by
+ *         title: 'My First Post'
+ *         content: 'This is the content of my first post.'
  */
+
+/**
+ * @swagger
+ * /posts:
+ *   post:
+ *     summary: Create a new post
+ *     tags: [Posts]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             $ref: '#/components/schemas/Post'
+ *     responses:
+ *       200:
+ *         description: The created post
+ *         content:
+ *           application/json:
+ *             schema:
+ *               $ref: '#/components/schemas/Post'
+ *       401:
+ *         description: Unauthorized (missing or invalid token)
+ *       400:
+ *         description: Bad request (invalid input)
+ *       500:
+ *         description: Server error
+ */
+router.post("/", authMiddleware, postsController.create.bind(postsController));
 
 /**
  * @swagger
  * /posts:
  *   get:
  *     summary: Get all posts
- *     description: Retrieve a list of all posts
- *     tags:
- *       - Posts
+ *     tags: [Posts]
  *     responses:
  *       200:
- *         description: A list of posts
+ *         description: List of all posts
  *         content:
  *           application/json:
  *             schema:
@@ -66,20 +96,18 @@ router.get("/", postsController.getAll.bind(postsController));
  * @swagger
  * /posts/{id}:
  *   get:
- *     summary: Get a post by ID
- *     description: Retrieve a single post by its ID
- *     tags:
- *       - Posts
+ *     summary: Get a specific post by ID
+ *     tags: [Posts]
  *     parameters:
  *       - in: path
  *         name: id
+ *         required: true
+ *         description: ID of the post
  *         schema:
  *           type: string
- *         required: true
- *         description: The ID of the post
  *     responses:
  *       200:
- *         description: A single post
+ *         description: The post details
  *         content:
  *           application/json:
  *             schema:
@@ -91,68 +119,26 @@ router.get("/", postsController.getAll.bind(postsController));
  */
 router.get("/:id", postsController.getById.bind(postsController));
 
-
 /**
  * @swagger
- * /posts:
- *   post:
- *     summary: Create a new post
- *     description: Create a new post
- *     tags:
- *       - Posts
- *     security:
- *       - bearerAuth: []
- *     requestBody:
- *       required: true
- *       content:
- *         application/json:
- *           schema:
- *             type: object
- *             properties:
- *               title:
- *                 type: string
- *                 description: The title of the post
- *               content:
- *                 type: string
- *                 description: The content of the post
- *             required:
- *               - title
- *               - content
- *     responses:
- *       201:
- *         description: Post created successfully
- *         content:
- *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/Post'
- *       400:
- *         description: Invalid input
- *       500:
- *         description: Server error
- */
-router.post("/", authMiddleware, postsController.create.bind(postsController));
-
-
-/**
- * @swagger
- * posts/{id}:
+ * /posts/{id}:
  *   delete:
- *     summary: Delete a post by ID
- *     description: Delete a single post by its ID
- *     tags:
- *       - Posts
+ *     summary: Delete a specific post by ID
+ *     tags: [Posts]
  *     security:
  *       - bearerAuth: []
  *     parameters:
  *       - in: path
  *         name: id
+ *         required: true
+ *         description: ID of the post to delete
  *         schema:
  *           type: string
- *         required: true
- *         description: The ID of the post
  *     responses:
  *       200:
  *         description: Post deleted successfully
+ *       401:
+ *         description: Unauthorized (missing or invalid token)
  *       404:
  *         description: Post not found
  *       500:

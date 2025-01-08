@@ -7,16 +7,13 @@ class PostsController extends BaseController<IPost> {
         super(postModel);
     }
 
+    // Override create to associate the post with the authenticated user
     async create(req: Request, res: Response) {
-        const userId = req.params.userId;
-        const post = {
-            ...req.body,
-            owner: userId
-        }
+        const userId = req.params.userId;  // Get the userId from the middleware
+        const post = { ...req.body, owner: userId };  // Attach the userId to the post
         req.body = post;
         super.create(req, res);
-    };
+    }
 }
-
 
 export default new PostsController();

@@ -3,6 +3,7 @@ import { Model } from "mongoose";
 
 class BaseController<T> {
     model: Model<T>;
+
     constructor(model: any) {
         this.model = model;
     }
@@ -10,54 +11,48 @@ class BaseController<T> {
     async getAll(req: Request, res: Response) {
         const filter = req.query.owner;
         try {
-            if (filter) {
-                const item = await this.model.find({ owner: filter });
-                res.send(item);
-            } else {
-                const items = await this.model.find();
-                res.send(items);
-            }
+            const items = filter
+                ? await this.model.find({ owner: filter })
+                : await this.model.find();
+            res.send(items);
         } catch (error) {
             res.status(400).send(error);
         }
-    };
+    }
 
     async getById(req: Request, res: Response) {
         const id = req.params.id;
-
         try {
             const item = await this.model.findById(id);
-            if (item != null) {
+            if (item) {
                 res.send(item);
             } else {
-                res.status(404).send("not found");
+                res.status(404).send("Not found");
             }
         } catch (error) {
             res.status(400).send(error);
         }
-    };
+    }
 
     async create(req: Request, res: Response) {
-        const body = req.body;
+        const body = { ...req.body, owner: req.params.userId }; // Attach userId as owner
         try {
             const item = await this.model.create(body);
             res.status(201).send(item);
         } catch (error) {
             res.status(400).send(error);
         }
-    };
+    }
 
     async deleteItem(req: Request, res: Response) {
         const id = req.params.id;
         try {
-            const rs = await this.model.findByIdAndDelete(id);
-            res.status(200).send("deleted");
+            await this.model.findByIdAndDelete(id);
+            res.status(200).send("Deleted");
         } catch (error) {
             res.status(400).send(error);
         }
-    };
-
+    }
 }
 
-
-export default BaseController
+export default BaseController;
