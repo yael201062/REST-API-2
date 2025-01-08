@@ -4,190 +4,224 @@ import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { Document } from 'mongoose';
 
-// Registration
+// Register a new user
 const register = async (req: Request, res: Response) => {
     try {
-        const { email, password } = req.body;
+        const password = req.body.password;
         const salt = await bcrypt.genSalt(10);
         const hashedPassword = await bcrypt.hash(password, salt);
-        const user = await userModel.create({ email, password: hashedPassword });
+        const user = await userModel.create({
+            email: req.body.email,
+            password: hashedPassword,
+        });
         res.status(200).send(user);
     } catch (err) {
         res.status(400).send(err);
     }
 };
 
-// Token Generation
+// Type for tokens
 type tTokens = {
-    accessToken: string;
-    refreshToken: string;
-};
+    accessToken: string,
+    refreshToken: string
+}
 
+// Generate access and refresh tokens
 const generateToken = (userId: string): tTokens | null => {
     if (!process.env.TOKEN_SECRET) {
+        console.log('TOKEN_SECRET is missing');
         return null;
     }
-
-    const random = Math.random().toString();
-    const accessToken = jwt.sign(
-        { _id: userId, random },
-        process.env.TOKEN_SECRET,
-        { expiresIn: process.env.TOKEN_EXPIRES }
-    );
-
-    const refreshToken = jwt.sign(
-        { _id: userId, random },
-        process.env.TOKEN_SECRET,
-        { expiresIn: process.env.REFRESH_TOKEN_EXPIRES }
-    );
-
-    return { accessToken, refreshToken };
+    try {
+        const accessToken = jwt.sign(
+            { _id: userId },
+            process.env.TOKEN_SECRET,
+            { expiresIn: process.env.TOKEN_EXPIRES }
+        );
+        const refreshToken = jwt.sign(
+            { _id: userId },
+            process.env.TOKEN_SECRET,
+            { expiresIn: process.env.REFRESH_TOKEN_EXPIRES }
+        );
+        console.log('Tokens generated successfully');
+        return { accessToken, refreshToken };
+    } catch (err) {
+        console.log('Error generating tokens:', err);
+        return null;
+    }
 };
 
-// Login
+// Login a user
 const login = async (req: Request, res: Response) => {
     try {
-        const { email, password } = req.body;
-        const user = await userModel.findOne({ email });
-
+        const user = await userModel.findOne({ email: req.body.email });
         if (!user) {
-            return res.status(400).send('Wrong username or password');
+            console.log('User not found');
+            res.status(400).send('wrong username or password');
+            return;
         }
-
-        const validPassword = await bcrypt.compare(password, user.password);
+        const validPassword = await bcrypt.compare(req.body.password, user.password);
         if (!validPassword) {
-            return res.status(400).send('Wrong username or password');
+            console.log('Invalid password');
+            res.status(400).send('wrong username or password');
+            return;
         }
-
+        if (!process.env.TOKEN_SECRET) {
+            console.log('TOKEN_SECRET is missing');
+            res.status(500).send('Server Error');
+            return;
+        }
         const tokens = generateToken(user._id);
         if (!tokens) {
-            return res.status(500).send('Server Error');
+            console.log('Failed to generate tokens');
+            res.status(500).send('Server Error');
+            return;
         }
-
         if (!user.refreshToken) {
             user.refreshToken = [];
         }
         user.refreshToken.push(tokens.refreshToken);
-        await user.save();
-
+        await user.save(); // Save the refresh token to the user document
+        console.log('User logged in successfully:', user._id);
         res.status(200).send({
             accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken,
             _id: user._id
         });
     } catch (err) {
+        console.log('Error in login:', err);
         res.status(400).send(err);
     }
 };
 
-// Verify Refresh Token
+// Type for user document
 type tUser = Document<unknown, {}, IUser> & IUser & Required<{ _id: string }> & { __v: number };
 
-const verifyRefreshToken = async (refreshToken: string | undefined): Promise<tUser | null> => {
-    return new Promise<tUser | null>((resolve, reject) => {
+// Verify the refresh token
+const verifyRefreshToken = (refreshToken: string | undefined) => {
+    return new Promise<tUser>((resolve, reject) => {
+        console.log('Received refresh token:', refreshToken); // Log the token
         if (!refreshToken) {
-            return reject('fail');
+            console.log('No refresh token provided');
+            reject("No refresh token provided");
+            return;
         }
-
         if (!process.env.TOKEN_SECRET) {
-            return reject('fail');
+            console.log('TOKEN_SECRET is missing');
+            reject("TOKEN_SECRET is missing");
+            return;
         }
-
         jwt.verify(refreshToken, process.env.TOKEN_SECRET, async (err: any, payload: any) => {
             if (err) {
-                return reject('fail');
+                console.log('Token verification failed:', err); // Log the error
+                reject("Token verification failed");
+                return;
             }
-
             const userId = payload._id;
+            console.log('User ID from token:', userId); // Log the user ID
             try {
                 const user = await userModel.findById(userId);
-                if (!user || !user.refreshToken || !user.refreshToken.includes(refreshToken)) {
-                    if (user) user.refreshToken = [];
-                    await user?.save();
-                    return reject('fail');
+                if (!user) {
+                    console.log('User not found');
+                    reject("User not found");
+                    return;
                 }
-
-                // Remove the used refresh token
-                user.refreshToken = user.refreshToken.filter((token) => token !== refreshToken);
-                await user.save();
+                if (!user.refreshToken || !user.refreshToken.includes(refreshToken)) {
+                    console.log('Refresh token not found in user record');
+                    user.refreshToken = [];
+                    await user.save();
+                    reject("Refresh token not found in user record");
+                    return;
+                }
+                const tokens = user.refreshToken!.filter((token) => token !== refreshToken);
+                user.refreshToken = tokens;
                 resolve(user);
             } catch (err) {
-                reject('fail');
+                console.log('Error finding user:', err); // Log the error
+                reject("Error finding user");
+                return;
             }
         });
     });
 };
 
-// Logout
+// Logout a user
 const logout = async (req: Request, res: Response) => {
     try {
         const user = await verifyRefreshToken(req.body.refreshToken);
-        if (user) {
-            res.status(200).send('success');
-        } else {
-            res.status(400).send('fail');
-        }
+        await user.save();
+        console.log('User logged out successfully:', user._id);
+        res.status(200).send("success");
     } catch (err) {
-        res.status(400).send('fail');
+        console.log('Error in logout:', err);
+        res.status(400).send("fail");
     }
 };
 
-// Refresh Token
+// Refresh the access token
 const refresh = async (req: Request, res: Response) => {
     try {
-        const user = await verifyRefreshToken(req.body.refreshToken);
-        if (!user) {
-            return res.status(400).send('fail');
+        const refreshToken = req.body.refreshToken;
+        console.log('Refresh token received:', refreshToken); // Log the refresh token
+        if (!refreshToken) {
+            console.log('No refresh token provided');
+            res.status(400).send("No refresh token provided");
+            return;
         }
-
+        const user = await verifyRefreshToken(refreshToken);
+        if (!user) {
+            console.log('User not found');
+            res.status(400).send("User not found");
+            return;
+        }
         const tokens = generateToken(user._id);
         if (!tokens) {
-            return res.status(500).send('Server Error');
+            console.log('Failed to generate tokens');
+            res.status(500).send('Server Error');
+            return;
         }
-
         if (!user.refreshToken) {
             user.refreshToken = [];
         }
         user.refreshToken.push(tokens.refreshToken);
-        await user.save();
-
+        await user.save(); // Save the new refresh token to the user document
+        console.log('Tokens refreshed successfully for user:', user._id);
         res.status(200).send({
             accessToken: tokens.accessToken,
             refreshToken: tokens.refreshToken,
             _id: user._id
         });
     } catch (err) {
-        res.status(400).send('fail');
+        console.log('Error in refresh:', err); // Log the error
+        res.status(400).send("fail");
     }
 };
 
-// Authentication Middleware
-type Payload = {
-    _id: string;
-};
-
+// Middleware to authenticate requests
 export const authMiddleware = (req: Request, res: Response, next: NextFunction) => {
     const authorization = req.header('authorization');
     const token = authorization && authorization.split(' ')[1];
 
     if (!token) {
-        return res.status(401).send('Access Denied');
+        res.status(401).send('Access Denied');
+        return; // עצור את הבקשה כאן
     }
-
     if (!process.env.TOKEN_SECRET) {
-        return res.status(500).send('Server Error');
+        res.status(500).send('Server Error');
+        return; // עצור את הבקשה כאן
     }
 
     jwt.verify(token, process.env.TOKEN_SECRET, (err, payload) => {
         if (err) {
-            return res.status(401).send('Access Denied');
+            res.status(401).send('Access Denied');
+            return; // עצור את הבקשה כאן
         }
-
-        req.params.userId = (payload as Payload)._id;
-        next();
+        req.params.userId = (payload as { _id: string })._id;
+        next(); // העבר את הבקשה ל-handler הבא
     });
 };
 
+// Export the functions
 export default {
     register,
     login,
